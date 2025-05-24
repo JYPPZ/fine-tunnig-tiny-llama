@@ -466,9 +466,19 @@ class ModelComparator:
         self.logger.info("Cargando tokenizer...")
         tokenizer_path = self.config.get("tokenizer_path_for_comparison", self.tuned_model_path)
         self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, trust_remote_code=True)
+
         if self.tokenizer.pad_token is None:
+            self.logger.info("Tokenizer pad_token no está definido. Usando eos_token como pad_token.")
             self.tokenizer.pad_token = self.tokenizer.eos_token
-        self.tokenizer.padding_side = "right"
+        self.tokenizer.padding_side = "right" # Asegurar que el padding_side esté definido
+
+        # Guardar el ID del token <|end|> que se usa para el fine-tuning
+        self.custom_end_token_for_ft = "<|end|>" # El token en prompt_template_train
+        self.custom_end_token_id_for_ft = self.tokenizer.convert_tokens_to_ids(self.custom_end_token_for_ft)
+        
+        if self.custom_end_token_id_for_ft == self.tokenizer.unk_token_id:
+            self.logger.warning(f"El token '{self.custom_end_token_for_ft}' es UNK para el tokenizer. "
+                                "La generación del modelo fine-tuned podría no detenerse como se espera.")
         
         # Solo usar bnb_config si es CUDA
         bnb_config_val_comp = None
@@ -534,6 +544,23 @@ class ModelComparator:
         current_device_type_str = self.device # es "cuda" o "cpu"
         with torch.no_grad():
             with torch.amp.autocast(device_type=current_device_type_str, dtype=autocast_dtype_comp, enabled=use_amp):
+                # Determinar qué eos_token_id usar basado en el modelo
+                eos_token_id_to_use = self.tokenizer.eos_token_id # Default para el modelo base
+                # PeftModel envuelve al modelo base
+                # Una forma más robusta sería pasar un flag o chequear el tipo si es necesario,
+                # pero por simplicidad, asumimos que podemos distinguirlos así o que
+                # `self.tuned_model` es el único modelo que usa `self.custom_end_token_id_for_ft`.
+                # Si `model` es una instancia de PeftModel, es el tuneado.
+                if isinstance(model, PeftModel) or model == self.tuned_model: # Chequeo más explícito
+                    if self.custom_end_token_id_for_ft != self.tokenizer.unk_token_id:
+                        eos_token_id_to_use = [self.tokenizer.eos_token_id, self.custom_end_token_id_for_ft]
+                        # Si solo quieres que pare en <|end|> para el fine-tuned:
+                        # eos_token_id_to_use = self.custom_end_token_id_for_ft
+                        # Pero es más seguro incluir el EOS original también.
+                    else:
+                        # Si <|end|> es UNK, el modelo FT no podrá pararse en él. Usar default.
+                        self.logger.warning("Usando eos_token_id por defecto para modelo fine-tuned porque '<|end|>' es UNK.")
+                        eos_token_id_to_use = self.tokenizer.eos_token_id
                 outputs = model.generate(
                     **inputs,
                     max_new_tokens=max_new_tokens,
@@ -542,8 +569,8 @@ class ModelComparator:
                     top_p=0.9,
                     top_k=50,
                     repetition_penalty=1.1,
-                    pad_token_id=self.tokenizer.eos_token_id,
-                    eos_token_id=self.tokenizer.eos_token_id # Para que pare en EOS
+                    pad_token_id=self.tokenizer.pad_token_id, # Usar el pad_token_id del tokenizer
+                    eos_token_id=eos_token_id_to_use # Asegurar que el modelo sepa cuándo parar
                 )
         
         generated_tokens = outputs[0][inputs['input_ids'].shape[1]:]
