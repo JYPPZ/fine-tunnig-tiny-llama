@@ -42,7 +42,7 @@ def main():
         "gradient_accumulation_steps": 2,  # Reducido de 4 ya que aumentamos batch_size
         
         # PARÁMETROS DE ENTRENAMIENTO
-        "num_epochs": 2,  # Puedes aumentar si quieres
+        "num_epochs": 4,  # Puedes aumentar si quieres
         "learning_rate": 3e-5,  # Ligeramente reducido para más estabilidad
         "weight_decay": 0.01,
         "warmup_ratio": 0.15,  # Incrementado para mejor convergencia
@@ -70,7 +70,7 @@ def main():
         "prompt_template_inference": "<|system|>\\nYou are a programming expert who explains code clearly and concisely.\\n<|user|>\\nExplain this code:\\n{code}\\n<|assistant|>\\n",
         
         # COMPARACIÓN
-        "num_comparison_samples": 50,  # Incrementado para mejor evaluación
+        "num_comparison_samples": 100,  # Incrementado para mejor evaluación
         "interactive_comparison_enabled": True,
         "log_level": "INFO"
     }
